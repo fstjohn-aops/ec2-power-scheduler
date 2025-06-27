@@ -1,0 +1,45 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: oz-eks-cluster
+  region: us-west-2
+  version: "1.32"
+  tags:
+    ManagedBy: eksctl
+
+# If `useDefaultPodIdentityAssociations` isn't available, then create the
+# permissions directly, preferring wellKnownPolicies if available.
+iam:
+  podIdentityAssociations:
+    - namespace: ec2-power-scheduler
+      serviceAccountName: ec2-power-scheduler-sa
+      permissionPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - "ec2:*"
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - "kms:CreateGrant"
+              - "kms:Decrypt"
+              - "kms:DescribeKey"
+              - "kms:GenerateDataKey"
+              - "kms:GenerateDataKeyWithoutPlaintext"
+              - "kms:ReEncrypt"
+              - "kms:ListKeys"
+              - "kms:ListAliases"
+              - "kms:ListGrants"
+              - "kms:ListKeyPolicies"
+              - "kms:GetKeyPolicy"
+              - "kms:PutKeyPolicy"
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - "iam:PassRole"
+            Resource: "*"
+            Condition:
+              StringEquals:
+                "iam:PassedToService": "ec2.amazonaws.com" 

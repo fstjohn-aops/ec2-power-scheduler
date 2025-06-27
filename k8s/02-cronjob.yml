@@ -4,8 +4,10 @@ metadata:
   name: ec2-power-scheduler
   namespace: ec2-power-scheduler
 spec:
-  schedule: "*/5 * * * *"  # Every 5 minutes
+  schedule: "* * * * *"  # Every minute (K8s minimum interval)
   concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3  # Keep 3 successful jobs (default)
+  failedJobsHistoryLimit: 1      # Keep only 1 failed job
   jobTemplate:
     spec:
       template:

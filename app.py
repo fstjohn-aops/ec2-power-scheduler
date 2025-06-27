@@ -62,7 +62,7 @@ def main():
     import boto3
     from datetime import datetime, time
     
-    ec2 = boto3.client('ec2')
+    ec2 = boto3.client('ec2', region_name='us-west-2')
     current_time = datetime.now().time()
     logger.info(f"Starting EC2 scheduler at {current_time}")
     

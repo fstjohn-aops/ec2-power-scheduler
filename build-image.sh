@@ -1,17 +1,20 @@
 #!/bin/bash
 
-set -e
-
-LATEST_TAG=$1
-
-if [ -z "$LATEST_TAG" ]; then
-  echo "Usage: $0 <latest-tag>"
-  exit 1
+# Check if tag parameter is provided
+if [ -z "$1" ]; then
+    echo "Usage: $0 <tag>"
+    echo "Example: $0 v1.0.0"
+    exit 1
 fi
 
-echo "Building ec2-power-scheduler image with tag: $LATEST_TAG"
+TAG=$1
 
-# Build the Docker image
-docker build -t cr.aops.tools/aops-docker-repo/ec2-power-scheduler:$LATEST_TAG .
+# Build x86_64 image for EKS compatibility
+podman build --platform linux/amd64 -t ec2-power-scheduler:latest .
 
-echo "Image built successfully!" 
+# Tag with provided tag
+podman tag ec2-power-scheduler:latest ec2-power-scheduler:$TAG
+
+# Show built images
+echo "Built images:"
+podman images ec2-power-scheduler 

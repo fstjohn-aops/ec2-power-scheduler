@@ -57,6 +57,10 @@ class StructuredFormatter(logging.Formatter):
             log_data['time_string'] = record.time_string
         if hasattr(record, 'error'):
             log_data['error'] = record.error
+        if hasattr(record, 'reason'):
+            log_data['reason'] = record.reason
+        if hasattr(record, 'schedule_found'):
+            log_data['schedule_found'] = record.schedule_found
             
         return json.dumps(log_data)
 
@@ -225,7 +229,14 @@ def main(region='us-west-2'):
             schedule = get_schedule_from_tags(tags)
             
             if not schedule:
-                logger.debug(f"Found instance {instance_name} ({instance_id}) - no power schedule tags found, skipping")
+                logger.debug(f"Found instance {instance_name} ({instance_id}) - no power schedule tags found, skipping", extra={
+                    'component': 'instance_processing',
+                    'instance_name': instance_name,
+                    'instance_id': instance_id,
+                    'current_state': current_state,
+                    'schedule_found': False,
+                    'reason': 'no power schedule tags found'
+                })
                 continue
             
             instances_processed += 1
@@ -236,7 +247,7 @@ def main(region='us-west-2'):
             stop_time_str = schedule['stop_time'].strftime('%H:%M')
             current_time_str = current_time.strftime('%H:%M')
             
-            logger.info(f"Processing instance {instance_name} ({instance_id})", extra={
+            logger.info(f"Processing instance {instance_name} ({instance_id}) - schedule: ON at {start_time_str}, OFF at {stop_time_str}, current time: {current_time_str}", extra={
                 'component': 'instance_processing',
                 'instance_name': instance_name,
                 'instance_id': instance_id,
@@ -244,40 +255,44 @@ def main(region='us-west-2'):
                 'start_time': start_time_str,
                 'stop_time': stop_time_str,
                 'current_time': current_time_str,
-                'timezone': region_tz.zone
+                'timezone': region_tz.zone,
+                'schedule_found': True
             })
             
             if should_run and current_state == 'stopped':
-                logger.info(f"Starting instance {instance_name}", extra={
+                logger.info(f"Starting instance {instance_name} - current time {current_time_str} is within ON period {start_time_str}-{stop_time_str}", extra={
                     'component': 'instance_action',
                     'instance_name': instance_name,
                     'instance_id': instance_id,
                     'current_time': current_time_str,
                     'start_time': start_time_str,
                     'stop_time': stop_time_str,
-                    'action': 'start'
+                    'action': 'start',
+                    'reason': f'current time {current_time_str} is within ON period {start_time_str}-{stop_time_str}'
                 })
                 ec2.start_instances(InstanceIds=[instance_id])
                 instances_started += 1
             elif not should_run and current_state == 'running':
-                logger.info(f"Stopping instance {instance_name}", extra={
+                logger.info(f"Stopping instance {instance_name} - current time {current_time_str} is outside ON period {start_time_str}-{stop_time_str}", extra={
                     'component': 'instance_action',
                     'instance_name': instance_name,
                     'instance_id': instance_id,
                     'current_time': current_time_str,
                     'start_time': start_time_str,
                     'stop_time': stop_time_str,
-                    'action': 'stop'
+                    'action': 'stop',
+                    'reason': f'current time {current_time_str} is outside ON period {start_time_str}-{stop_time_str}'
                 })
                 ec2.stop_instances(InstanceIds=[instance_id])
                 instances_stopped += 1
             else:
-                logger.info(f"No action needed for instance {instance_name}", extra={
+                logger.info(f"No action needed for instance {instance_name} - already in correct state", extra={
                     'component': 'instance_action',
                     'instance_name': instance_name,
                     'instance_id': instance_id,
                     'current_state': current_state,
-                    'should_run': should_run
+                    'should_run': should_run,
+                    'reason': 'instance is already in correct state'
                 })
     
     logger.info(f"Scheduler completed: {instances_processed} processed, {instances_started} started, {instances_stopped} stopped", extra={

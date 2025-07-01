@@ -83,7 +83,7 @@ kubectl apply -f eks/00-podIdentityAssociation.yml
 
 ```bash
 # Update to a new image version
-./k8s/update-deployment.sh v1.0.0
+./k8s/update-deployment.sh 1.0.0
 ```
 
 ## Configuration

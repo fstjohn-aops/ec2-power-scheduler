@@ -286,7 +286,7 @@ def main(region='us-west-2'):
                 ec2.stop_instances(InstanceIds=[instance_id])
                 instances_stopped += 1
             else:
-                logger.info(f"No action needed for instance {instance_name} - already in correct state", extra={
+                logger.info(f"No action needed for instance {instance_name} - already in correct state ({current_state})", extra={
                     'component': 'instance_action',
                     'instance_name': instance_name,
                     'instance_id': instance_id,

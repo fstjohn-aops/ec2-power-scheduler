@@ -5,7 +5,7 @@ metadata:
   namespace: ec2-power-scheduler
 spec:
   suspend: false  # Temporarily disable the cronjob
-  schedule: "*/15 * * * *"  # Every 30 minutes (K8s minimum interval)
+  schedule: "*/5 * * * *"  # Every 30 minutes (K8s minimum interval)
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3  # Keep 3 successful jobs (default)
   failedJobsHistoryLimit: 1      # Keep only 1 failed job

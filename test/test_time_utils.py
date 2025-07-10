@@ -125,3 +125,72 @@ class TestScheduleLogic:
         overnight_schedule = {'start_time': time(22, 0), 'stop_time': time(6, 0)}
         assert app.should_instance_be_running(overnight_schedule, time(22, 0)) is True
         assert app.should_instance_be_running(overnight_schedule, time(6, 0)) is True 
+
+
+class TestDisabledUntilParsing:
+    """Test cases for PowerScheduleDisabledUntil parsing"""
+
+    def test_parse_disabled_until_valid_formats(self):
+        """Test parsing various valid disabled until formats"""
+        test_cases = [
+            ('2025-07-10T23:51:39.472237+00:00', datetime(2025, 7, 10, 23, 51, 39)),
+            ('2025-01-01T00:00:00Z', datetime(2025, 1, 1, 0, 0, 0)),
+            ('2025-12-31T23:59:59-05:00', datetime(2025, 12, 31, 23, 59, 59)),
+            ('2025-06-15T12:30:00', datetime(2025, 6, 15, 12, 30, 0))
+        ]
+        
+        for time_str, expected in test_cases:
+            result = app.parse_disabled_until(time_str)
+            assert result is not None
+            # Compare only up to seconds since microseconds might vary and ignore timezone
+            result_naive = result.replace(microsecond=0, tzinfo=None)
+            expected_naive = expected.replace(microsecond=0)
+            assert result_naive == expected_naive
+
+    def test_parse_disabled_until_invalid_formats(self):
+        """Test parsing invalid disabled until formats returns None"""
+        invalid_times = [
+            'invalid',
+            '2025-13-01T00:00:00Z',  # Invalid month
+            '2025-01-32T00:00:00Z',  # Invalid day
+            '2025-01-01T25:00:00Z',  # Invalid hour
+            '',
+            'not-a-date'
+        ]
+        
+        for time_str in invalid_times:
+            result = app.parse_disabled_until(time_str)
+            assert result is None
+
+
+class TestScheduleExtractionWithDisabledUntil:
+    """Test cases for schedule extraction with disabled until tag"""
+
+    def test_get_schedule_from_tags_with_disabled_until(self):
+        """Test extracting schedule with disabled until tag"""
+        tags = [
+            {'Key': 'Name', 'Value': 'TestInstance'},
+            {'Key': 'PowerScheduleOnTime', 'Value': '09:00'},
+            {'Key': 'PowerScheduleOffTime', 'Value': '17:00'},
+            {'Key': 'PowerScheduleDisabledUntil', 'Value': '2025-07-10T23:51:39.472237+00:00'}
+        ]
+        
+        result = app.get_schedule_from_tags(tags)
+        
+        assert result is not None
+        assert result['start_time'] == time(9, 0)
+        assert result['stop_time'] == time(17, 0)
+        assert result['disabled_until'] is not None
+        assert result['disabled_until'].year == 2025
+        assert result['disabled_until'].month == 7
+        assert result['disabled_until'].day == 10
+
+    def test_get_schedule_from_tags_disabled_until_only(self):
+        """Test extracting schedule with only disabled until tag (should return None)"""
+        tags = [
+            {'Key': 'Name', 'Value': 'TestInstance'},
+            {'Key': 'PowerScheduleDisabledUntil', 'Value': '2025-07-10T23:51:39.472237+00:00'}
+        ]
+        
+        result = app.get_schedule_from_tags(tags)
+        assert result is None  # Still need both on/off time tags 

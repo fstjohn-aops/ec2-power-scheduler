@@ -144,3 +144,34 @@ class TestSchedulerIntegration:
         mock_ec2.start_instances.assert_called_once_with(
             InstanceIds=['i-1234567890abcdef0']
         ) 
+
+    @patch('boto3.client')
+    def test_main_function_disabled_until(self, mock_boto3):
+        """Test main function with instances that have disabled until time"""
+        # Mock EC2 client
+        mock_ec2 = Mock()
+        mock_boto3.return_value = mock_ec2
+        
+        # Mock describe_instances response with disabled until tag
+        mock_ec2.describe_instances.return_value = {
+            'Reservations': [{
+                'Instances': [{
+                    'InstanceId': 'i-1234567890abcdef0',
+                    'State': {'Name': 'stopped'},
+                    'Tags': [
+                        {'Key': 'Name', 'Value': 'DisabledInstance'},
+                        {'Key': 'PowerScheduleOnTime', 'Value': '09:00'},
+                        {'Key': 'PowerScheduleOffTime', 'Value': '17:00'},
+                        {'Key': 'PowerScheduleDisabledUntil', 'Value': '2025-07-10T23:51:39.472237+00:00'}
+                    ]
+                }]
+            }]
+        }
+        
+        # Run the main function
+        app.main()
+        
+        # Verify EC2 client was called but no start/stop operations due to disabled until
+        mock_ec2.describe_instances.assert_called_once()
+        mock_ec2.start_instances.assert_not_called()
+        mock_ec2.stop_instances.assert_not_called() 

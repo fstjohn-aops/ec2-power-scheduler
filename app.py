@@ -61,6 +61,8 @@ class StructuredFormatter(logging.Formatter):
             log_data['reason'] = record.reason
         if hasattr(record, 'schedule_found'):
             log_data['schedule_found'] = record.schedule_found
+        if hasattr(record, 'disabled_until'):
+            log_data['disabled_until'] = record.disabled_until
             
         return json.dumps(log_data)
 
@@ -164,6 +166,16 @@ def parse_time(time_str):
         logger.error(f"Error parsing time '{time_str}': {e}")
         return None
 
+def parse_disabled_until(tag_value):
+    """Parse PowerScheduleDisabledUntil tag value to datetime object"""
+    try:
+        from dateutil import parser
+        parsed = parser.parse(tag_value.strip())
+        return parsed
+    except Exception as e:
+        logger.error(f"Error parsing disabled until time '{tag_value}': {e}")
+        return None
+
 def get_schedule_from_tags(tags):
     """Extract schedule from EC2 instance tags"""
     if not tags:
@@ -171,15 +183,18 @@ def get_schedule_from_tags(tags):
     
     on_time = None
     off_time = None
+    disabled_until = None
     
     for tag in tags:
         if tag['Key'] == 'PowerScheduleOnTime':
             on_time = parse_time(tag['Value'])
         elif tag['Key'] == 'PowerScheduleOffTime':
             off_time = parse_time(tag['Value'])
+        elif tag['Key'] == 'PowerScheduleDisabledUntil':
+            disabled_until = parse_disabled_until(tag['Value'])
     
     if on_time and off_time:
-        return {'start_time': on_time, 'stop_time': off_time}
+        return {'start_time': on_time, 'stop_time': off_time, 'disabled_until': disabled_until}
     return None
 
 def should_instance_be_running(schedule, current_time):
@@ -236,6 +251,20 @@ def main(region='us-west-2'):
                     'current_state': current_state,
                     'schedule_found': False,
                     'reason': 'no power schedule tags found'
+                })
+                continue
+            
+            # Check if scheduling is disabled until a specific time
+            current_datetime = datetime.now(timezone.utc)
+            if schedule.get('disabled_until') and current_datetime < schedule['disabled_until']:
+                disabled_until_str = schedule['disabled_until'].strftime('%Y-%m-%d %H:%M:%S UTC')
+                logger.info(f"Skipping instance {instance_name} ({instance_id}) - scheduling disabled until {disabled_until_str}", extra={
+                    'component': 'instance_processing',
+                    'instance_name': instance_name,
+                    'instance_id': instance_id,
+                    'current_state': current_state,
+                    'disabled_until': disabled_until_str,
+                    'reason': 'scheduling disabled until specified time'
                 })
                 continue
             

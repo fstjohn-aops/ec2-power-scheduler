@@ -162,7 +162,7 @@ class TestSchedulerIntegration:
                         {'Key': 'Name', 'Value': 'DisabledInstance'},
                         {'Key': 'PowerScheduleOnTime', 'Value': '09:00'},
                         {'Key': 'PowerScheduleOffTime', 'Value': '17:00'},
-                        {'Key': 'PowerScheduleDisabledUntil', 'Value': '2025-07-10T23:51:39.472237+00:00'}
+                        {'Key': 'PowerScheduleDisabledUntil', 'Value': '2025-12-31T23:59:59.000000+00:00'}
                     ]
                 }]
             }]

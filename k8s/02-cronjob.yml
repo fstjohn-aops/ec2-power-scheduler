@@ -17,6 +17,12 @@ spec:
           containers:
           - name: scheduler
             image: cr.aops.tools/aops-docker-repo/ec2-power-scheduler:latest
+            env:
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: slack-bot-token
+                  key: token
             resources:
               requests:
                 memory: "64Mi"

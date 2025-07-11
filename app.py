@@ -8,6 +8,7 @@ import json
 from datetime import timezone, datetime
 import os
 import pytz
+import requests
 
 # Configure structured logging
 class StructuredFormatter(logging.Formatter):
@@ -210,6 +211,102 @@ def should_instance_be_running(schedule, current_time):
     else:
         return start_time <= current_time <= stop_time
 
+def get_stakeholders_from_tags(tags):
+    """Extract stakeholders from EC2 instance tags"""
+    if not tags:
+        return []
+    
+    for tag in tags:
+        if tag['Key'] == 'Stakeholders':
+            # Parse comma-separated list of Slack user IDs
+            stakeholders = [user_id.strip() for user_id in tag['Value'].split(',') if user_id.strip()]
+            return stakeholders
+    
+    return []
+
+def send_slack_notification(user_id, instance_name, instance_id, action, region, bot_token):
+    """Send Slack DM notification to a stakeholder about power state change"""
+    try:
+        url = "https://slack.com/api/chat.postMessage"
+        headers = {
+            "Authorization": f"Bearer {bot_token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Create a user-friendly message
+        action_emoji = "🟢" if action == "start" else "🔴"
+        action_text = "started" if action == "start" else "stopped"
+        
+        message = f"{action_emoji} *EC2 Instance Power State Change*\n\n" \
+                 f"*Instance:* {instance_name}\n" \
+                 f"*Instance ID:* `{instance_id}`\n" \
+                 f"*Action:* {action_text}\n" \
+                 f"*Region:* {region}\n" \
+                 f"*Time:* {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        
+        data = {
+            "channel": user_id,
+            "text": message
+        }
+        
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response_data = response.json()
+        
+        if response_data.get('ok'):
+            logger.info(f"Successfully sent Slack notification to {user_id} for {action} action on {instance_name}", extra={
+                'component': 'slack_notification',
+                'instance_name': instance_name,
+                'instance_id': instance_id,
+                'action': action,
+                'slack_user_id': user_id,
+                'status': 'success'
+            })
+        else:
+            logger.error(f"Failed to send Slack notification to {user_id}: {response_data.get('error')}", extra={
+                'component': 'slack_notification',
+                'instance_name': instance_name,
+                'instance_id': instance_id,
+                'action': action,
+                'slack_user_id': user_id,
+                'status': 'error',
+                'error': response_data.get('error')
+            })
+            
+    except Exception as e:
+        logger.error(f"Exception sending Slack notification to {user_id}: {e}", extra={
+            'component': 'slack_notification',
+            'instance_name': instance_name,
+            'instance_id': instance_id,
+            'action': action,
+            'slack_user_id': user_id,
+            'status': 'exception',
+            'error': str(e)
+        })
+
+def notify_stakeholders(instance_name, instance_id, action, region, stakeholders, bot_token):
+    """Notify all stakeholders about a power state change"""
+    if not stakeholders:
+        logger.debug(f"No stakeholders to notify for instance {instance_name}", extra={
+            'component': 'stakeholder_notification',
+            'instance_name': instance_name,
+            'instance_id': instance_id,
+            'action': action,
+            'stakeholders_count': 0
+        })
+        return
+    
+    logger.info(f"Notifying {len(stakeholders)} stakeholders about {action} action on {instance_name}", extra={
+        'component': 'stakeholder_notification',
+        'instance_name': instance_name,
+        'instance_id': instance_id,
+        'action': action,
+        'stakeholders_count': len(stakeholders),
+        'stakeholders': stakeholders
+    })
+    
+    for user_id in stakeholders:
+        send_slack_notification(user_id, instance_name, instance_id, action, region, bot_token)
+
 def main(region='us-west-2'):
     """Main scheduler function"""
     import boto3
@@ -218,6 +315,14 @@ def main(region='us-west-2'):
     # Get timezone for the region
     region_tz = get_timezone_for_region(region)
     
+    # Get Slack bot token from environment variable
+    slack_bot_token = os.environ.get('SLACK_BOT_TOKEN')
+    if not slack_bot_token:
+        logger.warning("SLACK_BOT_TOKEN environment variable not set - stakeholder notifications will be disabled", extra={
+            'component': 'scheduler_start',
+            'slack_notifications_enabled': False
+        })
+    
     ec2 = boto3.client('ec2', region_name=region)
     current_time = datetime.now(timezone.utc).astimezone(region_tz).time()
     
@@ -225,7 +330,8 @@ def main(region='us-west-2'):
         'component': 'scheduler_start',
         'current_time': current_time.strftime('%H:%M'),
         'timezone': region_tz.zone,
-        'region': region
+        'region': region,
+        'slack_notifications_enabled': bool(slack_bot_token)
     })
     
     response = ec2.describe_instances(
@@ -242,6 +348,7 @@ def main(region='us-west-2'):
             
             instance_name = next((tag['Value'] for tag in tags if tag['Key'] == 'Name'), instance_id)
             schedule = get_schedule_from_tags(tags)
+            stakeholders = get_stakeholders_from_tags(tags)
             
             if not schedule:
                 logger.debug(f"Found instance {instance_name} ({instance_id}) - no power schedule tags found, skipping", extra={
@@ -301,6 +408,10 @@ def main(region='us-west-2'):
                 })
                 ec2.start_instances(InstanceIds=[instance_id])
                 instances_started += 1
+                
+                # Notify stakeholders about the power state change
+                if slack_bot_token:
+                    notify_stakeholders(instance_name, instance_id, 'start', region, stakeholders, slack_bot_token)
             elif not should_run and current_state == 'running':
                 logger.info(f"Stopping instance {instance_name} - current time {current_time_str} is outside ON period {start_time_str}-{stop_time_str}", extra={
                     'component': 'instance_action',
@@ -314,6 +425,10 @@ def main(region='us-west-2'):
                 })
                 ec2.stop_instances(InstanceIds=[instance_id])
                 instances_stopped += 1
+                
+                # Notify stakeholders about the power state change
+                if slack_bot_token:
+                    notify_stakeholders(instance_name, instance_id, 'stop', region, stakeholders, slack_bot_token)
             else:
                 logger.info(f"No action needed for instance {instance_name} - already in correct state ({current_state})", extra={
                     'component': 'instance_action',

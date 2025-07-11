@@ -9,6 +9,7 @@ A Kubernetes-based solution for automatically starting and stopping EC2 instance
 - **Multi-Region Support**: Automatically detects and uses appropriate timezones for AWS regions
 - **Overnight Schedules**: Supports schedules that cross midnight (e.g., 10 PM to 6 AM)
 - **Structured Logging**: JSON-formatted logs for better observability and integration with log aggregation systems
+- **Slack Notifications**: Automatic notifications to stakeholders when power states change
 - **Comprehensive Testing**: Unit and integration tests with coverage reporting
 - **Pod Identity**: Uses EKS Pod Identity for secure AWS authentication
 
@@ -28,6 +29,7 @@ The scheduler runs as a Kubernetes CronJob every 15 minutes, checking EC2 instan
 Set EC2 tags on your instances:
 - `PowerScheduleOnTime`: Start time for the instance
 - `PowerScheduleOffTime`: Stop time for the instance
+- `Stakeholders`: Comma-separated list of Slack user IDs to notify about power state changes (optional)
 
 ### Supported Time Formats
 
@@ -47,6 +49,12 @@ aws ec2 create-tags --resources i-1234567890abcdef0 \
 aws ec2 create-tags --resources i-1234567890abcdef0 \
   --tags Key=PowerScheduleOnTime,Value="10pm" \
          Key=PowerScheduleOffTime,Value="6am"
+
+# Tag an instance with stakeholders for notifications
+aws ec2 create-tags --resources i-1234567890abcdef0 \
+  --tags Key=PowerScheduleOnTime,Value="9am" \
+         Key=PowerScheduleOffTime,Value="5pm" \
+         Key=Stakeholders,Value="U08QYU6AX0V,U1234567890"
 ```
 
 ## Prerequisites
@@ -54,6 +62,7 @@ aws ec2 create-tags --resources i-1234567890abcdef0 \
 - EKS cluster with Pod Identity enabled
 - IAM role with EC2 permissions (see `eks/00-podIdentityAssociation.yml`)
 - Container registry access (default: `cr.aops.tools/aops-docker-repo`)
+- Slack app with bot token (for notifications - optional)
 
 ## Deployment
 
@@ -77,6 +86,9 @@ kubectl apply -f k8s/02-cronjob.yml
 
 # Set up Pod Identity (if using eksctl)
 kubectl apply -f eks/00-podIdentityAssociation.yml
+
+# Set up Slack bot token (optional - for notifications)
+kubectl apply -f k8s/03-slack-secret.yml
 ```
 
 ### 3. Update Deployment (for new versions)
@@ -92,6 +104,7 @@ kubectl apply -f eks/00-podIdentityAssociation.yml
 
 - `AWS_REGION`: AWS region to operate in (default: `us-west-2`)
 - `REGISTRY`: Container registry URL (default: `cr.aops.tools/aops-docker-repo`)
+- `SLACK_BOT_TOKEN`: Slack bot token for sending notifications (optional)
 
 ### CronJob Schedule
 
@@ -107,6 +120,80 @@ spec:
 The CronJob is configured with conservative resource limits:
 - CPU: 50m request, 100m limit
 - Memory: 64Mi request, 128Mi limit
+
+## Slack Notifications
+
+The scheduler can automatically notify stakeholders via Slack when EC2 instances are started or stopped. This feature is optional and requires a Slack app with appropriate permissions.
+
+### Setup
+
+1. **Create a Slack App**:
+   - Go to https://api.slack.com/apps
+   - Click "Create New App" → "From scratch"
+   - Give it a name (e.g., "EC2 Power Scheduler")
+   - Select your workspace
+
+2. **Configure Bot Permissions**:
+   - Go to "OAuth & Permissions" in the left sidebar
+   - Add the following scopes:
+     - `chat:write` - Send messages to channels and DMs
+     - `chat:write.public` - Send messages to public channels (optional)
+   - Install the app to your workspace
+   - Copy the "Bot User OAuth Token" (starts with `xoxb-`)
+
+3. **Create Kubernetes Secret**:
+   ```bash
+   # Encode your bot token
+   echo -n "xoxb-your-token-here" | base64
+   
+   # Update k8s/03-slack-secret.yml with the encoded token
+   # Then apply the secret
+   kubectl apply -f k8s/03-slack-secret.yml
+   ```
+
+### Usage
+
+1. **Tag EC2 Instances**: Add a `Stakeholders` tag to your EC2 instances with comma-separated Slack user IDs:
+   ```bash
+   aws ec2 create-tags --resources i-1234567890abcdef0 \
+     --tags Key=Stakeholders,Value="U08QYU6AX0V,U1234567890"
+   ```
+
+2. **Get User IDs**: You can find Slack user IDs by:
+   - Right-clicking on a user in Slack → "Copy link" → extract the user ID from the URL
+   - Or using the Slack API: `https://slack.com/api/users.lookupByEmail?email=user@example.com`
+
+3. **Test Notifications**: Use the provided test script:
+   ```bash
+   export SLACK_BOT_TOKEN="xoxb-your-token-here"
+   python test_slack_notification.py
+   ```
+
+### Notification Format
+
+Notifications include:
+- 🟢/🔴 Emoji indicating start/stop action
+- Instance name and ID
+- Action performed (started/stopped)
+- AWS region
+- Timestamp in UTC
+
+Example notification:
+```
+🟢 EC2 Instance Power State Change
+
+Instance: production-web-server
+Instance ID: i-1234567890abcdef0
+Action: started
+Region: us-west-2
+Time: 2024-01-15 09:00:00 UTC
+```
+
+### Troubleshooting
+
+- **No notifications received**: Check that the bot token is correct and the app has the required permissions
+- **Permission errors**: Ensure the bot has `chat:write` scope and is installed to your workspace
+- **User not found**: Verify the user IDs are correct and the users are in your workspace
 
 ## Monitoring and Logging
 

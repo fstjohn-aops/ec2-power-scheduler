@@ -16,7 +16,7 @@ env:
 
 jobs:
   test:
-    name: Run Tests
+    name: Test
     runs-on: ubuntu-latest
     environment: default
     steps:

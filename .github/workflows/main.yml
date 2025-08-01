@@ -55,13 +55,3 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           platforms: linux/amd64
-
-  deploy:
-    name: Deploy
-    runs-on: ubuntu-latest
-    environment: default
-    needs: [build]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      # Add your deployment steps here 

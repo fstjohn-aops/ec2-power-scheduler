@@ -2,6 +2,7 @@ name: Build and Deploy
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 env:
   REGISTRY: cr.aops.tools/aops-docker-repo
@@ -12,15 +13,11 @@ env:
   K8S_CONTAINER_NAME: scheduler
 
 jobs:
-  build-and-deploy:
-    name: Build and Deploy
+  build:
+    name: Build
     runs-on: ubuntu-latest
     environment: default
-
-    permissions:
-      contents: read
-      id-token: write
-
+    needs: [test]
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -45,3 +42,13 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           platforms: linux/amd64
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    environment: default
+    needs: [build]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      # Add your deployment steps here

@@ -3,7 +3,7 @@ import json
 import logging
 from io import StringIO
 from unittest.mock import patch, Mock
-import app
+from src import app
 
 
 class TestJsonLogging:

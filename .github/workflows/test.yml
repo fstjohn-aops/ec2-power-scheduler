@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - '**'
+  workflow_call:
 
 jobs:
   ci-test:
@@ -18,4 +19,4 @@ jobs:
         with:
           python-version: '3.9'
       - name: Run test.sh
-        run: bash test.sh 
+        run: PYTHONPATH=src bash test.sh 

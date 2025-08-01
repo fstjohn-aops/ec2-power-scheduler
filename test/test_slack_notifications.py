@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 # Add the parent directory to the path so we can import from app.py
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app import get_stakeholders_from_tags, send_slack_notification, notify_stakeholders
+from src.app import get_stakeholders_from_tags, send_slack_notification, notify_stakeholders
 
 
 class TestStakeholdersParsing:
@@ -64,7 +64,7 @@ class TestStakeholdersParsing:
 class TestSlackNotification:
     """Test Slack notification functionality"""
     
-    @patch('app.requests.post')
+    @patch('src.app.requests.post')
     def test_successful_notification(self, mock_post):
         """Test successful Slack notification"""
         # Mock successful response
@@ -104,7 +104,7 @@ class TestSlackNotification:
         assert "started" in data['text']
         assert region in data['text']
     
-    @patch('app.requests.post')
+    @patch('src.app.requests.post')
     def test_stop_notification(self, mock_post):
         """Test Slack notification for stop action"""
         # Mock successful response
@@ -129,7 +129,7 @@ class TestSlackNotification:
         assert "🔴" in data['text']  # Stop action should have red emoji
         assert "stopped" in data['text']
     
-    @patch('app.requests.post')
+    @patch('src.app.requests.post')
     def test_failed_notification(self, mock_post):
         """Test failed Slack notification"""
         # Mock failed response
@@ -151,7 +151,7 @@ class TestSlackNotification:
         # Verify the request was made
         mock_post.assert_called_once()
     
-    @patch('app.requests.post')
+    @patch('src.app.requests.post')
     def test_request_exception(self, mock_post):
         """Test handling of request exceptions"""
         # Mock request exception
@@ -175,7 +175,7 @@ class TestSlackNotification:
 class TestStakeholderNotifications:
     """Test stakeholder notification orchestration"""
     
-    @patch('app.send_slack_notification')
+    @patch('src.app.send_slack_notification')
     def test_notify_multiple_stakeholders(self, mock_send_notification):
         """Test notifying multiple stakeholders"""
         stakeholders = ['U08QYU6AX0V', 'U1234567890', 'U9876543210']
@@ -202,7 +202,7 @@ class TestStakeholderNotifications:
             assert args[4] == region
             assert args[5] == bot_token
     
-    @patch('app.send_slack_notification')
+    @patch('src.app.send_slack_notification')
     def test_notify_no_stakeholders(self, mock_send_notification):
         """Test notifying when no stakeholders exist"""
         stakeholders = []
@@ -218,7 +218,7 @@ class TestStakeholderNotifications:
         # Verify no notifications were sent
         mock_send_notification.assert_not_called()
     
-    @patch('app.send_slack_notification')
+    @patch('src.app.send_slack_notification')
     def test_notify_single_stakeholder(self, mock_send_notification):
         """Test notifying a single stakeholder"""
         stakeholders = ['U08QYU6AX0V']

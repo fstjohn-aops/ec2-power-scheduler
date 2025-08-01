@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, time
-import app
+from src import app
 
 
 @pytest.fixture

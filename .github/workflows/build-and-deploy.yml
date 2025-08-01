@@ -15,6 +15,7 @@ jobs:
   build-and-deploy:
     name: Build and Deploy
     runs-on: ubuntu-latest
+    environment: default
 
     permissions:
       contents: read

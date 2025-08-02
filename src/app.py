@@ -310,7 +310,6 @@ def notify_stakeholders(instance_name, instance_id, action, region, stakeholders
 def main(region='us-west-2'):
     """Main scheduler function"""
     import boto3
-    from datetime import datetime, time
     
     # Get timezone for the region
     region_tz = get_timezone_for_region(region)

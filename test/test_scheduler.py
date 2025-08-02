@@ -1,35 +1,24 @@
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, time, timezone
+from unittest.mock import Mock, patch
+from datetime import datetime, timezone, timedelta
 from src import app
-
+from freezegun import freeze_time
 
 @pytest.fixture
 def sample_tags():
-    """Set up test fixtures"""
     return [
         {'Key': 'Name', 'Value': 'TestInstance'},
         {'Key': 'PowerScheduleOnTime', 'Value': '09:00'},
         {'Key': 'PowerScheduleOffTime', 'Value': '17:00'}
     ]
 
-
 class TestSchedulerIntegration:
-    """Test cases for main scheduler integration with AWS"""
-
+    @freeze_time("2023-01-01 18:00:00")  # 10:00 PST
     @patch('boto3.client')
-    @patch('src.app.datetime')
-    def test_main_function_integration(self, mock_datetime, mock_boto3, sample_tags):
-        # Set current time to 10:00 (within schedule)
-        mock_now = datetime(2023, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
-        mock_datetime.now.return_value = mock_now
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
-        mock_datetime.timezone = timezone
-
-        # Mock EC2 client
+    def test_starts_stopped_instance_within_schedule(self, mock_boto3, sample_tags):
+        """Should start a stopped instance if current time is within schedule window."""
         mock_ec2 = Mock()
         mock_boto3.return_value = mock_ec2
-        # Mock describe_instances response
         mock_ec2.describe_instances.return_value = {
             'Reservations': [{
                 'Instances': [{
@@ -39,29 +28,43 @@ class TestSchedulerIntegration:
                 }]
             }]
         }
-        # Mock start_instances
         mock_ec2.start_instances.return_value = {}
-        # Run the main function
-        app.main()
-        # Verify EC2 client was called correctly
+        app.main(region='us-west-2')
         mock_ec2.describe_instances.assert_called_once()
         mock_ec2.start_instances.assert_called_once_with(
             InstanceIds=['i-1234567890abcdef0']
         )
+        mock_ec2.stop_instances.assert_not_called()
 
+    @freeze_time("2023-01-02 02:00:00")  # 18:00 PST (next day UTC)
     @patch('boto3.client')
-    @patch('src.app.datetime')
-    def test_main_function_no_schedule_instances(self, mock_datetime, mock_boto3):
-        # Set current time to 10:00 (arbitrary)
-        mock_now = datetime(2023, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
-        mock_datetime.now.return_value = mock_now
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
-        mock_datetime.timezone = timezone
-
-        # Mock EC2 client
+    def test_stops_running_instance_outside_schedule(self, mock_boto3, sample_tags):
+        """Should stop a running instance if current time is outside schedule window."""
         mock_ec2 = Mock()
         mock_boto3.return_value = mock_ec2
-        # Mock describe_instances response with no schedule tags
+        mock_ec2.describe_instances.return_value = {
+            'Reservations': [{
+                'Instances': [{
+                    'InstanceId': 'i-1234567890abcdef0',
+                    'State': {'Name': 'running'},
+                    'Tags': sample_tags
+                }]
+            }]
+        }
+        mock_ec2.stop_instances.return_value = {}
+        app.main(region='us-west-2')
+        mock_ec2.describe_instances.assert_called_once()
+        mock_ec2.stop_instances.assert_called_once_with(
+            InstanceIds=['i-1234567890abcdef0']
+        )
+        mock_ec2.start_instances.assert_not_called()
+
+    @freeze_time("2023-01-01 18:00:00")  # 10:00 PST
+    @patch('boto3.client')
+    def test_skips_instance_with_no_schedule_tags(self, mock_boto3):
+        """Should skip instances that do not have schedule tags."""
+        mock_ec2 = Mock()
+        mock_boto3.return_value = mock_ec2
         mock_ec2.describe_instances.return_value = {
             'Reservations': [{
                 'Instances': [{
@@ -71,120 +74,78 @@ class TestSchedulerIntegration:
                 }]
             }]
         }
-        # Run the main function
-        app.main()
-        # Verify EC2 client was called but no start/stop operations
+        app.main(region='us-west-2')
         mock_ec2.describe_instances.assert_called_once()
         mock_ec2.start_instances.assert_not_called()
         mock_ec2.stop_instances.assert_not_called()
 
+    @freeze_time("2023-01-01 18:00:00")  # 10:00 PST
     @patch('boto3.client')
-    @patch('src.app.datetime')
-    def test_main_function_stop_instances(self, mock_datetime, mock_boto3):
-        # Set current time to 18:00 (outside schedule)
-        mock_now = datetime(2023, 1, 1, 18, 0, 0, tzinfo=timezone.utc)
-        mock_datetime.now.return_value = mock_now
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
-        mock_datetime.timezone = timezone
-
-        # Mock EC2 client
+    def test_skips_instance_with_disabled_until(self, mock_boto3, sample_tags):
+        """Should skip instances with scheduling disabled until a future time."""
+        disabled_until = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        tags = sample_tags + [{'Key': 'PowerScheduleDisabledUntil', 'Value': disabled_until.isoformat()}]
         mock_ec2 = Mock()
         mock_boto3.return_value = mock_ec2
-        # Mock describe_instances response with running instance outside schedule
-        mock_ec2.describe_instances.return_value = {
-            'Reservations': [{
-                'Instances': [{
-                    'InstanceId': 'i-1234567890abcdef0',
-                    'State': {'Name': 'running'},
-                    'Tags': [
-                        {'Key': 'Name', 'Value': 'TestInstance'},
-                        {'Key': 'PowerScheduleOnTime', 'Value': '09:00'},
-                        {'Key': 'PowerScheduleOffTime', 'Value': '17:00'}
-                    ]
-                }]
-            }]
-        }
-        # Mock stop_instances
-        mock_ec2.stop_instances.return_value = {}
-        # Run the main function
-        app.main()
-        # Verify EC2 client was called correctly
-        mock_ec2.describe_instances.assert_called_once()
-        mock_ec2.stop_instances.assert_called_once_with(
-            InstanceIds=['i-1234567890abcdef0']
-        )
-
-    @patch('boto3.client')
-    @patch('src.app.datetime')
-    def test_main_function_multiple_instances(self, mock_datetime, mock_boto3, sample_tags):
-        # Set current time to 10:00 (within schedule)
-        mock_now = datetime(2023, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
-        mock_datetime.now.return_value = mock_now
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
-        mock_datetime.timezone = timezone
-
-        # Mock EC2 client
-        mock_ec2 = Mock()
-        mock_boto3.return_value = mock_ec2
-        # Mock describe_instances response with multiple instances
-        mock_ec2.describe_instances.return_value = {
-            'Reservations': [
-                {
-                    'Instances': [{
-                        'InstanceId': 'i-1234567890abcdef0',
-                        'State': {'Name': 'stopped'},
-                        'Tags': sample_tags
-                    }]
-                },
-                {
-                    'Instances': [{
-                        'InstanceId': 'i-0987654321fedcba0',
-                        'State': {'Name': 'running'},
-                        'Tags': [{'Key': 'Name', 'Value': 'NoScheduleInstance'}]
-                    }]
-                }
-            ]
-        }
-        # Mock start_instances
-        mock_ec2.start_instances.return_value = {}
-        # Run the main function
-        app.main()
-        # Verify EC2 client was called correctly
-        mock_ec2.describe_instances.assert_called_once()
-        mock_ec2.start_instances.assert_called_once_with(
-            InstanceIds=['i-1234567890abcdef0']
-        )
-
-    @patch('boto3.client')
-    @patch('src.app.datetime')
-    def test_main_function_disabled_until(self, mock_datetime, mock_boto3):
-        # Set current time to 10:00 (arbitrary)
-        mock_now = datetime(2023, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
-        mock_datetime.now.return_value = mock_now
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
-        mock_datetime.timezone = timezone
-
-        # Mock EC2 client
-        mock_ec2 = Mock()
-        mock_boto3.return_value = mock_ec2
-        # Mock describe_instances response with disabled until tag
         mock_ec2.describe_instances.return_value = {
             'Reservations': [{
                 'Instances': [{
                     'InstanceId': 'i-1234567890abcdef0',
                     'State': {'Name': 'stopped'},
-                    'Tags': [
-                        {'Key': 'Name', 'Value': 'DisabledInstance'},
-                        {'Key': 'PowerScheduleOnTime', 'Value': '09:00'},
-                        {'Key': 'PowerScheduleOffTime', 'Value': '17:00'},
-                        {'Key': 'PowerScheduleDisabledUntil', 'Value': '2025-12-31T23:59:59.000000+00:00'}
-                    ]
+                    'Tags': tags
                 }]
             }]
         }
-        # Run the main function
-        app.main()
-        # Verify EC2 client was called but no start/stop operations due to disabled until
+        app.main(region='us-west-2')
         mock_ec2.describe_instances.assert_called_once()
         mock_ec2.start_instances.assert_not_called()
-        mock_ec2.stop_instances.assert_not_called() 
+        mock_ec2.stop_instances.assert_not_called()
+
+    @freeze_time("2023-01-01 18:00:00")  # 10:00 PST
+    @patch('boto3.client')
+    def test_multiple_instances_mixed_states(self, mock_boto3, sample_tags):
+        """Should handle multiple instances with mixed states and schedules."""
+        # Instance 1: stopped, should be started at 10:00 PST
+        # Instance 2: running, no schedule (should be skipped)
+        # Instance 3: running, outside schedule (should be stopped at 18:00 PST)
+        tags2 = [{'Key': 'Name', 'Value': 'NoScheduleInstance'}]
+        tags3 = [
+            {'Key': 'Name', 'Value': 'TestInstance2'},
+            {'Key': 'PowerScheduleOnTime', 'Value': '09:00'},
+            {'Key': 'PowerScheduleOffTime', 'Value': '17:00'}
+        ]
+        mock_ec2 = Mock()
+        mock_boto3.return_value = mock_ec2
+        mock_ec2.describe_instances.return_value = {
+            'Reservations': [
+                {'Instances': [{
+                    'InstanceId': 'i-1',
+                    'State': {'Name': 'stopped'},
+                    'Tags': sample_tags
+                }]},
+                {'Instances': [{
+                    'InstanceId': 'i-2',
+                    'State': {'Name': 'running'},
+                    'Tags': tags2
+                }]},
+                {'Instances': [{
+                    'InstanceId': 'i-3',
+                    'State': {'Name': 'running'},
+                    'Tags': tags3
+                }]}
+            ]
+        }
+        mock_ec2.start_instances.return_value = {}
+        mock_ec2.stop_instances.return_value = {}
+        # First, at 10:00 PST, i-1 should be started, i-3 not stopped
+        app.main(region='us-west-2')
+        mock_ec2.start_instances.assert_called_once_with(InstanceIds=['i-1'])
+        mock_ec2.stop_instances.assert_not_called()
+        # Reset mocks
+        mock_ec2.start_instances.reset_mock()
+        mock_ec2.stop_instances.reset_mock()
+        # Now, at 18:00 PST (02:00 UTC next day), i-3 should be stopped
+        with freeze_time("2023-01-02 02:00:00"):
+            app.main(region='us-west-2')
+        mock_ec2.start_instances.assert_not_called()
+        mock_ec2.stop_instances.assert_called_once_with(InstanceIds=['i-3']) 

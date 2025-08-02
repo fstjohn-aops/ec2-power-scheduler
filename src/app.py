@@ -5,7 +5,7 @@ EC2 Power State Scheduler
 
 import logging
 import json
-from datetime import timezone, datetime
+import datetime
 import os
 import pytz
 import requests
@@ -16,7 +16,7 @@ class StructuredFormatter(logging.Formatter):
     def format(self, record):
         # Convert plain text logs to structured JSON format
         log_data = {
-            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'level': record.levelname,
             'logger': record.name,
             'message': record.getMessage(),
@@ -242,7 +242,7 @@ def send_slack_notification(user_id, instance_name, instance_id, action, region,
                  f"*Instance ID:* `{instance_id}`\n" \
                  f"*Action:* {action_text}\n" \
                  f"*Region:* {region}\n" \
-                 f"*Time:* {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                 f"*Time:* {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
         
         data = {
             "channel": user_id,
@@ -324,7 +324,7 @@ def main(region='us-west-2'):
         })
     
     ec2 = boto3.client('ec2', region_name=region)
-    current_time = datetime.now(timezone.utc).astimezone(region_tz).time()
+    current_time = datetime.datetime.now(datetime.timezone.utc).astimezone(region_tz).time()
     
     logger.info("Starting EC2 scheduler", extra={
         'component': 'scheduler_start',
@@ -362,7 +362,7 @@ def main(region='us-west-2'):
                 continue
             
             # Check if scheduling is disabled until a specific time
-            current_datetime = datetime.now(timezone.utc)
+            current_datetime = datetime.datetime.now(datetime.timezone.utc)
             if schedule.get('disabled_until') and current_datetime < schedule['disabled_until']:
                 disabled_until_str = schedule['disabled_until'].strftime('%Y-%m-%d %H:%M:%S UTC')
                 logger.info(f"Skipping instance {instance_name} ({instance_id}) - scheduling disabled until {disabled_until_str}", extra={

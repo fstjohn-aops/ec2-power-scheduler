@@ -1,18 +1,9 @@
 #!/bin/bash
 
-export TESTING=1
+set -e
 
-# Create virtual environment if it doesn't exist
-if [ ! -d "venv" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv venv
+echo "Running tests..."
+if [ -f venv/bin/activate ]; then
+  source venv/bin/activate
 fi
-
-# Activate virtual environment
-source venv/bin/activate
-
-# Install requirements
-pip install -r requirements.txt
-
-# Run tests
-python3 test_app.py 
+pytest "$@" 

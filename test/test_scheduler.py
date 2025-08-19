@@ -149,3 +149,36 @@ class TestSchedulerIntegration:
             app.main(region='us-west-2')
         mock_ec2.start_instances.assert_not_called()
         mock_ec2.stop_instances.assert_called_once_with(InstanceIds=['i-3']) 
+
+    @freeze_time("2023-01-01 05:30:00")  # 21:30 PST (previous day), before 6:00 AM
+    @patch('boto3.client')
+    def test_updates_on_time_tag_later_than_latest_valid(self, mock_boto3):
+        """Should update PowerScheduleOnTime tag to 06:00 if it is set later than 06:00."""
+        mock_ec2 = Mock()
+        mock_boto3.return_value = mock_ec2
+        # Instance with on time at 09:00 (should be updated to 06:00)
+        tags = [
+            {'Key': 'Name', 'Value': 'LateOnTimeInstance'},
+            {'Key': 'PowerScheduleOnTime', 'Value': '09:00'},
+            {'Key': 'PowerScheduleOffTime', 'Value': '17:00'}
+        ]
+        mock_ec2.describe_instances.return_value = {
+            'Reservations': [{
+                'Instances': [{
+                    'InstanceId': 'i-lateon',
+                    'State': {'Name': 'stopped'},
+                    'Tags': tags
+                }]
+            }]
+        }
+        mock_ec2.start_instances.return_value = {}
+        mock_ec2.create_tags.return_value = {}
+        app.main(region='us-west-2')
+        # Should update the tag to 06:00
+        mock_ec2.create_tags.assert_called_once_with(
+            Resources=['i-lateon'],
+            Tags=[{'Key': 'PowerScheduleOnTime', 'Value': '06:00'}]
+        )
+        # Should use the corrected time and start the instance (since 05:30 < 06:00, instance should not be started yet)
+        mock_ec2.start_instances.assert_not_called()
+        mock_ec2.stop_instances.assert_not_called() 

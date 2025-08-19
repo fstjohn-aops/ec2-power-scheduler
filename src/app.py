@@ -83,6 +83,9 @@ for handler in root_logger.handlers:
 
 logger = logging.getLogger(__name__)
 
+# Latest valid on time (6:00 AM)
+LATEST_VALID_ON_TIME = datetime.time(6, 0)
+
 def get_timezone_for_region(region):
     """Get the appropriate timezone for an AWS region"""
     # Mapping of AWS regions to their primary timezones
@@ -348,6 +351,27 @@ def main(region='us-west-2'):
             instance_name = next((tag['Value'] for tag in tags if tag['Key'] == 'Name'), instance_id)
             schedule = get_schedule_from_tags(tags)
             stakeholders = get_stakeholders_from_tags(tags)
+            
+            # Check and update PowerScheduleOnTime if it's later than the latest valid on time
+            on_time_tag = next((tag for tag in tags if tag['Key'] == 'PowerScheduleOnTime'), None)
+            if on_time_tag:
+                on_time_value = parse_time(on_time_tag['Value'])
+                if on_time_value and on_time_value > LATEST_VALID_ON_TIME:
+                    logger.info(f"Updating PowerScheduleOnTime for instance {instance_name} ({instance_id}) from {on_time_value.strftime('%H:%M')} to {LATEST_VALID_ON_TIME.strftime('%H:%M')}", extra={
+                        'component': 'instance_processing',
+                        'instance_name': instance_name,
+                        'instance_id': instance_id,
+                        'old_on_time': on_time_value.strftime('%H:%M'),
+                        'new_on_time': LATEST_VALID_ON_TIME.strftime('%H:%M'),
+                        'reason': 'on time is later than latest valid on time'
+                    })
+                    ec2.create_tags(Resources=[instance_id], Tags=[{'Key': 'PowerScheduleOnTime', 'Value': LATEST_VALID_ON_TIME.strftime('%H:%M')}])
+                    # Update the local variable so the rest of the logic uses the corrected time
+                    for tag in tags:
+                        if tag['Key'] == 'PowerScheduleOnTime':
+                            tag['Value'] = LATEST_VALID_ON_TIME.strftime('%H:%M')
+                    # Re-parse schedule after update
+                    schedule = get_schedule_from_tags(tags)
             
             if not schedule:
                 logger.debug(f"Found instance {instance_name} ({instance_id}) - no power schedule tags found, skipping", extra={
